@@ -1,0 +1,67 @@
+name: Build Unsigned IPA
+
+# Builds PortraitCam with no code signing and packages the resulting .app into
+# an unsigned .ipa, uploaded as a downloadable artifact. Sign it afterwards with
+# Sideloadly (or similar) before installing on a device.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    name: Build unsigned IPA
+    runs-on: macos-14
+
+    env:
+      PROJECT: PortraitCam.xcodeproj
+      SCHEME: PortraitCam
+      CONFIGURATION: Release
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show selected Xcode
+        run: xcodebuild -version
+
+      - name: Build (no code signing)
+        run: |
+          set -euxo pipefail
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIGURATION" \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            clean build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            DEVELOPMENT_TEAM=""
+
+      - name: Package unsigned IPA
+        run: |
+          set -euxo pipefail
+          APP_PATH="$(find build/Build/Products -type d -name '*.app' | head -n 1)"
+          if [ -z "$APP_PATH" ]; then
+            echo "error: no .app bundle was produced by the build" >&2
+            exit 1
+          fi
+          echo "Found app bundle: $APP_PATH"
+          rm -rf Payload PortraitCam.ipa
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          zip -r -y -X PortraitCam.ipa Payload
+          echo "---- IPA contents ----"
+          unzip -l PortraitCam.ipa
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PortraitCam-unsigned-ipa
+          path: PortraitCam.ipa
+          if-no-files-found: error
